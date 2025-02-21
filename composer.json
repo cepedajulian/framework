@@ -1,0 +1,24 @@
+{
+    "name": "dasintranet/framework",
+    "description": "PHP Minimal DasIntranet Framework Libs",
+    "keywords": ["PHP","Framework"],
+    "homepage": "https://dasintranet.com",
+    "type": "library",
+    "license": "MIT",
+    "autoload": {
+        "psr-4": {
+            "Dasintranet\\Framework\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "Cepeda Julian",
+            "email": "cepedajulian@gmail.com",
+            "homepage": "https://cepedajulian.com",
+            "role": "Developer"
+        }
+    ],
+    "require": {
+        "php": ">=7.3.0"
+    }
+}
