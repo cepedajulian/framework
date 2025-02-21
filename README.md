@@ -12,4 +12,4 @@ composer require dasintranet/framework
    - Julian Cepeda
 
 ## URL
-    - DasIntranet.com
+    DasIntranet.com
