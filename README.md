@@ -4,8 +4,6 @@
 
 DasIntranet Framework es un microframework PHP orientado a aplicaciones web y APIs sencillas. Ofrece enrutamiento HTTP, controladores, vistas con layouts, acceso a MariaDB/MySQL mediante PDO y clientes HTTP basados en cURL.
 
-Es un **paquete independiente de la aplicación de ejemplo**. No requiere Laravel ni Symfony.
-
 ## Novedades de la versión 1.0.1
 
 - **`Loader` integrado en el framework**: inicializa vistas, funciones auxiliares y archivos de rutas sin necesitar un `app/loader.php` propio.
