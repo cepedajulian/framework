@@ -1,10 +1,18 @@
 # DasIntranet Framework
 
-**Versión 1.0.1** · **PHP 8.4** · **Composer / PSR-4**
+**Versión 1.0.2** · **PHP 8.4** · **Composer / PSR-4**
 
 DasIntranet Framework es un microframework PHP orientado a aplicaciones web y APIs sencillas. Ofrece enrutamiento HTTP, controladores, vistas con layouts, acceso a MariaDB/MySQL mediante PDO y clientes HTTP basados en cURL.
 
-## Novedades de la versión 1.0.1
+## Novedades de la versión 1.0.2
+
+- **`ApiFree` y sesión web:** reenvía automáticamente el identificador de la sesión PHP activa a la misma instancia del servidor, únicamente por HTTPS y con un destino confiable. No envía cookies a servicios externos. Se libera el bloqueo de la sesión durante cURL y se restablece después, incluso ante errores.
+- **`ApiFree` y body:** conserva literalmente los cuerpos enviados como string; mantiene el comportamiento heredado para arrays; añade modos explícitos `json` y `form`. Permite recuperar tanto la respuesta decodificada en `$response` como el cuerpo exacto en `$rawBody`.
+- **Respuesta HTTP:** `ApiFree` conserva el código de estado y reenvía únicamente determinadas cabeceras seguras, con `$forwardResponse = true` por defecto para compatibilidad. Nunca reenvía `Set-Cookie` ni `Content-Length`.
+- **Sin cambios en el orden de argumentos:** `__construct($url, $method, $body)` y `exec($url, $method, $body)` mantienen su contrato posicional.
+- **Pruebas:** `php tests/apifree_compat.php` comprueba la compatibilidad sin depender de una API externa.
+
+## Cambios introducidos en la versión 1.0.1
 
 - **`Loader` integrado en el framework**: inicializa vistas, funciones auxiliares y archivos de rutas sin necesitar un `app/loader.php` propio.
 - **PSR-4**: nombres y rutas de las clases adecuados para Composer y sistemas Linux sensibles a mayúsculas/minúsculas.
@@ -13,7 +21,7 @@ DasIntranet Framework es un microframework PHP orientado a aplicaciones web y AP
 - **Vistas más robustas**: `render()` y `extend()`, resolución segura de rutas, soporte de notación con puntos y limpieza de búferes ante excepciones.
 - **PDO**: consultas preparadas, conexión `utf8mb4`, validación de nombres de tabla/campo en `find()` y transacciones explícitas.
 - **Clientes API**: verificación de certificados HTTPS, tiempos de espera, estado HTTP y un cliente cURL interno compartido.
-- **Seguridad de sesiones**: `ApiFree` ya no reenvía cookies PHP automáticamente.
+- **Seguridad de sesiones** (en 1.0.1): `ApiFree` exigía una activación explícita para reenviar la cookie. En 1.0.2 el reenvío es automático, pero únicamente para un servidor interno confiable por HTTPS.
 
 > **Nota de compatibilidad:** aunque se conservan las principales firmas públicas, los cambios en excepciones, transacciones y envío de cookies deben revisarse al migrar desde la versión 1.0.
 
@@ -42,7 +50,7 @@ framework/
 │   ├── ApiFree.php      # Cliente HTTP sin token
 │   └── HttpClient.php   # Adaptador interno de cURL
 └── tests/
-    └── smoke.php
+    └── apifree_compat.php
 ```
 
 El namespace del paquete es `Dasintranet\Framework\` y Composer lo asocia con `src/`.
@@ -78,7 +86,7 @@ En el `composer.json` **de la aplicación**:
       "options": {
         "symlink": true,
         "versions": {
-          "dasintranet/framework": "1.0.1"
+          "dasintranet/framework": "1.0.2"
         }
       }
     }
@@ -101,7 +109,7 @@ Composer cargará el paquete mediante `vendor/autoload.php`. **No copies manualm
 
 ### Opción B: instalar desde el repositorio Git del framework
 
-Si publicás este paquete en GitHub y lo etiquetás como `v1.0.1`, la aplicación puede declarar un repositorio de tipo `vcs`:
+Si publicás este paquete en GitHub y lo etiquetás como `v1.0.2`, la aplicación puede declarar un repositorio de tipo `vcs`:
 
 ```json
 {
@@ -387,17 +395,95 @@ Si el cuerpo de respuesta contiene un objeto o arreglo JSON válido, `response` 
 
 Los clientes establecen un máximo de 5 segundos de conexión y 30 segundos por solicitud, verifican certificados TLS y **no siguen redirecciones automáticamente**.
 
-### Compartir sesión PHP con una API interna (opcional)
+### Sesión web compartida entre rutas y `ApiFree`
 
-Por seguridad, `ApiFree` **no envía cookies de sesión** de forma predeterminada. La opción explícita es:
+A partir de la versión **1.0.2**, `ApiFree` envía **automáticamente la cookie de la sesión PHP que ya está activa** cuando llama a una API del mismo servidor usando HTTPS. La aplicación debe iniciar su sesión de la manera habitual (por ejemplo `session_start()`) antes de utilizar `ApiFree`; el framework no inicia por su cuenta una sesión nueva.
 
 ```php
-$api = new \Dasintranet\Framework\ApiFree();
-$api->shareSession = true;
-$resultado = $api->exec('https://mi-servidor.example/api/interna');
+use Dasintranet\Framework\ApiFree;
+
+session_start(); // Si todavía no está iniciada.
+$_SESSION['usuario_id'] = 123; // Normalmente ya establecido en el login.
+
+$api = new ApiFree();
+$respuesta = $api->exec(
+    'https://i12.preceptoria.com.ar/api/materias',
+    'POST',
+    json_encode(['carrera' => 'ASDA'], JSON_THROW_ON_ERROR)
+);
+
+// En la ruta /api/materias se puede leer la misma $_SESSION['usuario_id'].
+// La sesión se reabre automáticamente tras la petición cURL.
+$estado = $api->status;
+$cookieEnviada = $api->sessionForwarded;
 ```
 
-Solo se reenvía la cookie si existe una sesión PHP activa, la URL utiliza HTTPS y su host coincide con `$_SERVER['SERVER_NAME']`. Utilizá esta opción únicamente en endpoints propios y confiables.
+La sesión se reenvía **solo si** hay una sesión PHP activa, el destino usa HTTPS y el host coincide con `$_SERVER['SERVER_NAME']`. Para despliegues en los que Nginx use un `SERVER_NAME` diferente del subdominio actual, declaralos expresamente:
+
+```php
+$api = new ApiFree();
+$api->sessionHosts = ['i12.preceptoria.com.ar', 'i202.preceptoria.com.ar'];
+$api->exec('https://i12.preceptoria.com.ar/api/privada');
+```
+
+Configurá **exclusivamente hosts propios y confiables**. Cada host debe compartir el mismo almacenamiento de sesiones, nombre de cookie, ID de sesión y configuración de PHP para que la sesión realmente sea accesible. Compartir el ID con otra instancia o con Laravel no basta para compartir automáticamente el estado de sus sesiones. **No funciona sobre HTTP sin cifrar**. Si deseás desactivar el reenvío de sesión:
+
+```php
+$api->shareSession = false;
+```
+
+La sesión se libera con `session_write_close()` antes de consultar la API y se vuelve a abrir al terminar, también cuando hay errores. Esto evita el bloqueo típico cuando una ruta web hace una petición HTTP a otra ruta del mismo servidor.
+
+### Body de solicitud y body de respuesta
+
+Se mantiene el orden de parámetros original: `new ApiFree($url, $method, $body)` y `exec($url, $method, $body)`.
+
+**Modo compatible:** por defecto `$bodyEncoding = 'legacy'`. Un `string` se envía literalmente, sin que el framework lo convierta de nuevo a JSON. Los arrays se pasan a cURL como en el código anterior.
+
+```php
+$api = new ApiFree();
+$respuesta = $api->exec(
+    'https://i12.preceptoria.com.ar/api/guardar',
+    'POST',
+    '{"nombre":"Ana","activo":true}'
+);
+```
+
+**Modo JSON:** si querés enviar directamente un array u objeto y que el framework lo codifique como JSON:
+
+```php
+$api = new ApiFree();
+$api->bodyEncoding = 'json';
+$respuesta = $api->exec(
+    'https://i12.preceptoria.com.ar/api/guardar',
+    'POST',
+    ['nombre' => 'Ana', 'activo' => true]
+);
+```
+
+**Modo formulario:** para una API que recibe `application/x-www-form-urlencoded`:
+
+```php
+$api->bodyEncoding = 'form';
+$api->exec($url, 'POST', ['nombre' => 'Ana']);
+```
+
+Para `POST`, `PUT`, `PATCH` y `DELETE` se envía el `body` correspondiente. `GET` y `HEAD` no llevan body. La respuesta JSON objeto se devuelve como `stdClass`, un JSON array como array PHP y cualquier otro contenido como texto, tal como sucedía anteriormente:
+
+```php
+$api->response;         // stdClass|array|string
+$api->rawBody;          // string sin modificar
+$api->status;           // estado HTTP del servidor remoto
+$api->responseHeaders;  // array de cabeceras HTTP por nombre
+```
+
+Como en el framework anterior, por defecto `ApiFree` también establece el código HTTP del cliente y reenvía un conjunto limitado de cabeceras seguras. **No imprime el body de manera automática**, solo lo devuelve. Si usás `ApiFree` como cliente interno en una página web y no querés cambiar el estado HTTP de esa página:
+
+```php
+$api->forwardResponse = false;
+```
+
+**Limitación:** `ApiFree` puede lanzar excepciones si cURL falla. La aplicación debe capturarlas. Para respuestas que se desean emitir como JSON, utilizá `json_encode($api->response, JSON_THROW_ON_ERROR)` o enviá `$api->rawBody` con el tipo de contenido adecuado.
 
 ## Manejo de errores y seguridad
 
@@ -410,7 +496,13 @@ Solo se reenvía la cookie si existe una sesión PHP activa, la URL utiliza HTTP
 
 ## Pruebas
 
-El repositorio incluye `tests/smoke.php`, creado para comprobar componentes junto con una **versión específica de la aplicación de ejemplo**. Actualmente **no es una suite autónoma**: espera encontrar una carpeta hermana llamada `dasintranet-1.0/` con sus vistas y archivos de configuración. Si la estructura del ejemplo o su vista `hello.php` cambian, algunas comprobaciones pueden necesitar adaptación.
+El repositorio incluye pruebas autocontenidas para `ApiFree` con simulación de cURL: no requieren servicios de red, MariaDB, una aplicación de ejemplo ni una versión específica de la extensión cURL.
+
+```bash
+php tests/apifree_compat.php
+```
+
+Verifican sesión compartida y su reapertura, cuerpo de petición, respuesta JSON/texto, cabeceras y restricción de cookies para destinos externos. La integración HTTP real deberá comprobarse en el entorno de despliegue.
 
 Para verificar la sintaxis de una clase individual, podés usar:
 
@@ -423,13 +515,14 @@ Las pruebas de integración de `Db`, `Api` y `ApiFree` requieren además los ser
 
 ## Migración desde la versión 1.0
 
-1. Sustituí los archivos anteriores del framework por los de `src/` en la versión 1.0.1.
+1. Actualizá el framework a la versión 1.0.2 en una copia de pruebas de tu aplicación (sin reemplazar directamente producción).
 2. Actualizá el autoload de Composer y respetá las mayúsculas/minúsculas de `App.php`, `View.php`, `Db.php`, etc.
 3. Si la aplicación cargaba `app/loader.php`, sustituilo por `Loader::run($directorioApp)`.
 4. Revisá el tratamiento de errores: ahora las operaciones fallidas pueden lanzar excepciones.
 5. Usá `Db::transaction()` cuando varias escrituras deban ser atómicas.
-6. Si dependías de cookies de sesión en `ApiFree`, revisá la nueva opción `shareSession`.
-7. Comprobá el comportamiento de las vistas y layouts, y realizá las pruebas de integración antes de actualizar producción.
+6. `ApiFree` comparte la sesión PHP con rutas internas HTTPS de forma automática (`shareSession = true`); revisá el host y cualquier configuración de subdominios.
+7. Revisá el modo de envío de `body`: por defecto `legacy`; para arrays enviados en JSON configurá `bodyEncoding = 'json'`.
+8. Comprobá el comportamiento de las vistas y layouts, y realizá las pruebas de integración antes de actualizar producción.
 
 ## Estándares y alcance
 
